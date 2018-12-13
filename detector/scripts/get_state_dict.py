@@ -34,7 +34,7 @@ for m in net.modules():
         m.bias.data.zero_()
 
 pi = 0.01
-init.constant(net.cls_head[-1].bias, -math.log((1-pi)/pi))
+init.constant(net.cls_head[-1].bias, -math.log((1 - pi) / pi))
 
 net.fpn.load_state_dict(dd)
 torch.save(net.state_dict(), 'net.pth')

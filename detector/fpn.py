@@ -1,28 +1,50 @@
 '''RetinaFPN in PyTorch.'''
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torch.autograd import Variable
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, in_planes, planes, stride=1, downsample=None):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion * planes:
+            self.downsample = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion * planes)
+            )
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.downsample(x)
+        out = F.relu(out)
+        return out
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, in_planes, planes, stride=1):
-        super(Bottleneck, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion*planes, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion*planes)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(self.expansion * planes)
 
         self.downsample = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion*planes:
+        if stride != 1 or in_planes != self.expansion * planes:
             self.downsample = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(self.expansion*planes)
+                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion * planes)
             )
 
     def forward(self, x):
@@ -36,31 +58,31 @@ class Bottleneck(nn.Module):
 
 class FPN(nn.Module):
     def __init__(self, block, num_blocks):
-        super(FPN, self).__init__()
+        super().__init__()
         self.in_planes = 64
 
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
 
         # Bottom-up layers
-        self.layer1 = self._make_layer(block,  64, num_blocks[0], stride=1)
+        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
-        self.conv6 = nn.Conv2d(2048, 256, kernel_size=3, stride=2, padding=1)
-        self.conv7 = nn.Conv2d( 256, 256, kernel_size=3, stride=2, padding=1)
+        self.conv6 = nn.Conv2d(512 * block.expansion, 256, kernel_size=3, stride=2, padding=1)
+        self.conv7 = nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1)
 
         # Lateral layers
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
-        self.latlayer3 = nn.Conv2d( 512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer1 = nn.Conv2d(512 * block.expansion, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(256 * block.expansion, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(128 * block.expansion, 256, kernel_size=1, stride=1, padding=0)
 
         # Top-down layers
         self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
         self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1]*(num_blocks-1)
+        strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
             layers.append(block(self.in_planes, planes, stride))
@@ -71,11 +93,11 @@ class FPN(nn.Module):
         '''Upsample and add two feature maps.
 
         Args:
-          x: (Variable) top feature map to be upsampled.
-          y: (Variable) lateral feature map.
+          x: (Tensor) top feature map to be upsampled.
+          y: (Tensor) lateral feature map.
 
         Returns:
-          (Variable) added feature map.
+          (Tensor) added feature map.
 
         Note in PyTorch, when input size is odd, the upsampled feature map
         with `F.upsample(..., scale_factor=2, mode='nearest')`
@@ -88,8 +110,8 @@ class FPN(nn.Module):
 
         So we choose bilinear upsample which supports arbitrary output sizes.
         '''
-        _,_,H,W = y.size()
-        return F.upsample(x, size=(H,W), mode='bilinear') + y
+        _, _, H, W = y.size()
+        return F.interpolate(x, size=(H, W), mode='bilinear', align_corners=True) + y
 
     def forward(self, x):
         # Bottom-up
@@ -110,17 +132,21 @@ class FPN(nn.Module):
         return p3, p4, p5, p6, p7
 
 
-def FPN50():
-    return FPN(Bottleneck, [3,4,6,3])
-
-def FPN101():
-    return FPN(Bottleneck, [2,4,23,3])
+def fpn18():
+    return FPN(BasicBlock, [2, 2, 2, 2])
 
 
-def test():
-    net = FPN50()
-    fms = net(Variable(torch.randn(1,3,600,300)))
-    for fm in fms:
-        print(fm.size())
+def fpn34():
+    return FPN(BasicBlock, [3, 4, 6, 3])
 
-# test()
+
+def fpn50():
+    return FPN(Bottleneck, [3, 4, 6, 3])
+
+
+def fpn101():
+    return FPN(Bottleneck, [2, 4, 23, 3])
+
+
+def fpn152():
+    return FPN(Bottleneck, [3, 8, 36, 3])
