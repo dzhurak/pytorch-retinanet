@@ -120,6 +120,8 @@ class DataEncoder:
 
         score, labels = cls_preds.sigmoid().max(1)          # [#anchors,]
         ids = score > self.cls_thresh
-        ids = ids.nonzero().squeeze()             # [#obj,]
+        ids = ids.nonzero().squeeze().numpy().flatten()             # [#obj,]
+        if not ids.size:
+            return torch.Tensor(), torch.Tensor(), torch.Tensor()
         keep = box_nms(boxes[ids], score[ids], threshold=self.nms_thresh)
-        return boxes[ids][keep], labels[ids][keep]
+        return boxes[ids][keep], labels[ids][keep], score[ids][keep]
