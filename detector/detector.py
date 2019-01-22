@@ -28,11 +28,12 @@ def get_torch_device(random_seed=12345):
     return torch.device('cpu')
 
 
-def scale_bbox(box, w_scale, h_scale):
-    x1 = int(round(box[0] * w_scale))
-    y1 = int(round(box[1] * h_scale))
-    x2 = int(round(box[2] * w_scale))
-    y2 = int(round(box[3] * h_scale))
+def scale_bbox(box, w_scale, h_scale, input_size):
+    w, h = input_size
+    x1 = max(0, int(round(box[0] * w_scale)))
+    y1 = max(0, int(round(box[1] * h_scale)))
+    x2 = min(w, int(round(box[2] * w_scale)))
+    y2 = min(h, int(round(box[3] * h_scale)))
     return [x1, y1, x2, y2]
 
 
@@ -135,11 +136,12 @@ class RetinaDetector():
         loc_preds, cls_preds = self.net(x)
 
         encoder = DataEncoder(cls_thresh, nms_thresh)
-        boxes, preds = encoder.decode(loc_preds.cpu().data.squeeze(), cls_preds.cpu().data.squeeze(), (w_, h_))
+        boxes, preds, scores = encoder.decode(loc_preds.cpu().data.squeeze(), cls_preds.cpu().data.squeeze(), (w_, h_))
         boxes = boxes.numpy()
+        scores = scores.numpy()
         labels = [self.classes[pred] for pred in preds]
-        boxes = [scale_bbox(box, w_scale, h_scale) for box in boxes]
-        return list(zip([scale_bbox(box, w_scale, h_scale) for box in boxes], labels))
+        boxes = [scale_bbox(box, w_scale, h_scale, (w, h)) for box in boxes]
+        return list(zip(boxes, labels, scores))
 
     def save_net(self, path):
         torch.save({

@@ -146,7 +146,6 @@ def box_iou(box1, box2, order='xyxy'):
 
 
 def box_nms(bboxes, scores, threshold=0.5, mode='union'):
-    print(bboxes.shape, scores)
     '''Non maximum suppression.
 
     Args:
